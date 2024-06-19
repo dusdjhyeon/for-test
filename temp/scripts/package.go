@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"log"
 	"io/ioutil"
 	"strings"
@@ -45,11 +44,8 @@ const (
 )
 
 func main() {
-	//token := os.Getenv("GH_ACCESS_TOKEN")
+	token := os.Getenv("GH_ACCESS_TOKEN")
 	catalogPatterns := fetchCatalogPatterns()
-	if catalogPatterns == nil {
-		return
-	}
 
 	var patterns []CatalogPattern
 	if err := json.Unmarshal(catalogPatterns, &patterns); err != nil {
@@ -57,27 +53,46 @@ func main() {
 	}
 
 	for _, pattern := range patterns {
-		processPattern(pattern)
+		processPattern(pattern, token)
 	}
 }
 
 func fetchCatalogPatterns() []byte {
-	resp, err := http.Get(fmt.Sprintf("%s/api/catalog/content/pattern", mesheryCloudBaseURL))
-	if err != nil {
-		log.Printf("Error connecting to Meshery Cloud: %v\n", err)
-		return nil
-	}
-	defer resp.Body.Close()
+	//resp, err := http.Get(fmt.Sprintf("%s/api/catalog/content/pattern", mesheryCloudBaseURL))
+	//if err != nil {
+	//	log.Printf("Error connecting to Meshery Cloud: %v\n", err)
+	//	return nil
+	//}
+	//defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Error reading response body: %v\n", err)
-		return nil
-	}
-	return body
+	//body, err := ioutil.ReadAll(resp.Body)
+	//if err != nil {
+	//	log.Printf("Error reading response body: %v\n", err)
+	//	return nil
+	//}
+	//return body
+
+	tempData := `
+	[
+		{
+			"id": "0194ff83-0a43-4b83-9c75-b8f0f32da6b7",
+			"name": "Pod Readiness",
+			"pattern_file": "name: Pod Readiness\nservices:\n  pods-readiness-exec-pod:\n    name: pods-readiness-exec-pod\n    type: Pod\n    apiVersion: v1\n    namespace: default\n    model: kubernetes\n    settings:\n      spec:\n        containers:\n          - args:\n              - /bin/sh\n              - -c\n              - touch /tmp/healthy; sleep 30; rm -rf /tmp/healthy; sleep 600\n            image: busybox\n            name: pods-readiness-exec-container\n            readinessProbe:\n              exec:\n                command:\n                  - cat\n                  - /tmp/healthy\n            initialDelaySeconds: 5\n    traits:\n      meshmap:\n        edges: []\n    id: 583718ce-da5a-444e-ab2c-0dd0ee79ecdc\n    meshmodel-metadata:\n      capabilities: \"\"\n      genealogy: \"\"\n      isAnnotation: false\n      isCustomResource: false\n      isModelAnnotation: \"FALSE\"\n      isNamespaced: true\n      logoURL: https://github.com/cncf/artwork/blob/master/projects/kubernetes/icon/white/kubernetes-icon-white.svg\n      model: kubernetes\n      modelDisplayName: Kubernetes\n      primaryColor: '#326CE5'\n      published: true\n      secondaryColor: '#7aa1f0'\n      shape: round-rectangle\n      styleOverrides: \"\"\n      subCategory: Scheduling & Orchestration\n      svgColor: ui/public/static/img/meshmodels/kubernetes/color/kubernetes-color.svg\n      svgComplete: \"\"\n      svgWhite: ui/public/static/img/meshmodels/kubernetes/white/kubernetes-white.svg\n    position:\n      posX: 170\n      posY: 170\n    whiteboardData:\n      style: {}",
+			"catalog_data": {
+				"pattern_info": "Info about pattern one",
+				"pattern_caveats": "Caveats for pattern one",
+				"type": "deployment",
+				"imageURL": "https://example.com/image1.png",
+				"compatibility": ["compat1"]
+			},
+			"user_id": "99b3cfd0-4269-4ee8-9ac7-392dd24c1c02"
+		}
+	]`
+
+	return []byte(tempData)
 }
 
-func processPattern(pattern CatalogPattern) {
+func processPattern(pattern CatalogPattern, token string) {
 	patternImageURL := getPatternImageURL(pattern)
 	patternType := getPatternType(pattern.CatalogData.Type)
 	patternInfo := getStringOrEmpty(pattern.CatalogData.PatternInfo)
@@ -85,7 +100,7 @@ func processPattern(pattern CatalogPattern) {
 
 	compatibility := getCompatibility(pattern.CatalogData.Compatibility)
 
-	dir := fmt.Sprintf("./collections/_catalog/%s", patternType)
+	dir := filepath.Join("..", "..", "collections", "_catalog", patternType)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		fmt.Printf("%s doesn't exist. Creating directory...\n", patternType)
 		os.MkdirAll(dir, 0755)
@@ -138,12 +153,22 @@ func getCompatibility(compatibility []string) string {
 }
 
 func writePatternFile(pattern CatalogPattern, patternType, patternInfo, patternCaveats, compatibility, patternImageURL string) error {
-	dir := filepath.Join(mesheryCatalogFilesDir, pattern.ID)
+	dir := filepath.Join("..", "..", mesheryCatalogFilesDir, pattern.ID)
+	deployFilePath := filepath.Join(dir, "deploy.yml")
 	os.MkdirAll(dir, 0755)
-	ioutil.WriteFile(filepath.Join(dir, "deploy.yml"), []byte(pattern.PatternFile), 0644)
+	ioutil.WriteFile(deployFilePath, []byte(pattern.PatternFile), 0644)
 
-	services, _ := exec.Command("yq", ".services", filepath.Join(dir, "deploy.yml")).Output()
-	if strings.TrimSpace(string(services)) == "" {
+	contenttemp, err := ioutil.ReadFile(deployFilePath)
+	if err != nil {
+		return fmt.Errorf("Failed to read file: %v\n", err)
+	}
+
+	var datatemp map[string]interface{}
+	if err := yaml.Unmarshal(contenttemp, &datatemp); err != nil {
+		return fmt.Errorf("Failed to unmarshal YAML: %v\n", err)
+	}
+
+	if services, ok := datatemp["services"]; !ok || services == nil {
 		patternImageURL = "/assets/images/logos/service-mesh-pattern.svg"
 	}
 
@@ -193,24 +218,25 @@ userId: %s
 userName: %s
 userAvatarURL: %s
 type: %s
-compatibility: %s
+compatibility: 
+  %s
 patternId: %s
 image: %s
 patternInfo: |
-%s
+  %s
 patternCaveats: |
-%s
+  %s
 URL: 'https://raw.githubusercontent.com/meshery/meshery.io/master/%s/%s/deploy.yml'
 downloadLink: %s/deploy.yml
 ---`, pattern.Name, pattern.UserID, userFullName, userInfo.AvatarURL, patternType, compatibility, pattern.ID, patternImageURL, patternInfo, patternCaveats, mesheryCatalogFilesDir, pattern.ID, pattern.ID)
 
-	ioutil.WriteFile(fmt.Sprintf("./collections/_catalog/%s/%s.md", patternType, pattern.ID), []byte(content), 0644)
+	ioutil.WriteFile(fmt.Sprintf(filepath.Join("..", "..", "collections", "_catalog", patternType, pattern.ID+".md")), []byte(content), 0644)
 	
 	return nil
 }
 
 func fetchUserInfo(userID string) UserInfo {
-	resp, err := http.Get(fmt.Sprintf("%s/api/identity/users/profile/%s", mesheryCloudBaseURL, userID))
+	resp, err := http.Get(fmt.Sprintf("%s/api/identity/users/profile/%s", mesheryCloudBaseURL, "99b3cfd0-4269-4ee8-9ac7-392dd24c1c02"))
 	if err != nil {
 		log.Printf("Error fetching User details: %v\n", err)
 		return UserInfo{}
@@ -224,5 +250,6 @@ func fetchUserInfo(userID string) UserInfo {
 		return UserInfo{}
 	}
 	json.Unmarshal(body, &userInfo)
+	
 	return userInfo
 }
