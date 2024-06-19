@@ -22,7 +22,7 @@ jobs:
         name: Update Catalog Patterns in Go
         run: |
           cd temp/scripts
-          patternId=$(go run package.go | tee /dev/tty)
+          patternId=$(go run package.go)
           echo "patternId=$patternId" >> $GITHUB_OUTPUT
         env:
           GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
