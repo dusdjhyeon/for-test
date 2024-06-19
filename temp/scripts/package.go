@@ -54,6 +54,7 @@ func main() {
 
 	for _, pattern := range patterns {
 		processPattern(pattern, token)
+		fmt.Println(pattern.ID)
 	}
 }
 
