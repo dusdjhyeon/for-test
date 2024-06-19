@@ -1,4 +1,5 @@
 name: Add Cloud Native Catalog Items
+on: push
 jobs:
   UpdateCloudNativeCatalog:
     runs-on: ubuntu-22.04
